@@ -104,7 +104,7 @@ admin@gmail.com-----XSRF-TOKEN=eyJ...; teoheberg_session=eyJ...
 ### 1️⃣ 浏览器管理面板
 直接访问 Worker 域名，输入 `AUTH_KEY` 即可进入管理界面：
 ```
-https://你的域名/
+https://你的域名/workers.dev
 ```
 功能包括：
 - 📊 查看账号列表和统计
@@ -118,7 +118,7 @@ https://你的域名/
 
 ### 2️⃣ API 触发单个账号
 ```bash
-curl "https://你的域名/run?email=admin@example.com&key=你的AUTH_KEY"
+curl "https://你的域名/workers.dev/run?email=admin@example.com&key=你的AUTH_KEY"
 ```
 
 ---
