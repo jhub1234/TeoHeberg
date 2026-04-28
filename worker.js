@@ -47,7 +47,7 @@ async function addAccount(env, email, cookie) {
   if (existingIdx >= 0) {
     accounts[existingIdx].cookie = cookie;
     accounts[existingIdx].updatedAt = now;
-    accounts[existingIdx].cookieUpdatedAt = now;
+    // cookieUpdatedAt 仅在手动更新时改变（由前端触发）
   } else {
     accounts.push({
       email,
@@ -73,37 +73,15 @@ async function updateAccountStats(env, email, stats) {
   }
 }
 
-// 提取主站关键 Cookie
-function filterMainSiteCookies(setCookieHeader) {
-  if (!setCookieHeader) return null;
-  const cookies = setCookieHeader
-    .split(',')
-    .map(c => c.split(';')[0].trim())
-    .filter(c => c.includes('=') && (c.startsWith('XSRF-TOKEN=') || c.startsWith('teoheberg_session=')));
-  return cookies.length > 0 ? cookies.join('; ') : null;
-}
-
-async function updateMainCookie(env, email, newCookie) {
-  if (!newCookie || newCookie.length < 10) return;
-  const accounts = await getAccounts(env);
-  const account = accounts.find(a => a.email === email);
-  if (account && account.cookie !== newCookie) {
-    account.cookie = newCookie;
-    account.cookieUpdatedAt = new Date().toISOString();
-    await saveAccounts(env, accounts);
-    log('INFO', `[${email}] Cookie已自动更新`);
-  }
-}
-
 // ========== 积分提取 ==========
 function extractPoints(html) {
   const match = html.match(/fa-coins"><\/i><\/small>\s*([\d,]+)\s*<\/span>/i);
   return match ? match[1].trim() : null;
 }
 
-// ========== 主页访问（续期 + 积分） ==========
-async function fetchHomePage(env, email, cookie) {
-  log('INFO', `[${email}] 访问主页续期Cookie并获取积分`);
+// ========== 主页访问（仅积分 + 登录状态检查，不续期） ==========
+async function fetchHomePage(email, cookie) {
+  log('INFO', `[${email}] 访问主页检查登录状态及积分`);
   const response = await fetch(BASE_URL + '/home', {
     headers: {
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
@@ -113,22 +91,39 @@ async function fetchHomePage(env, email, cookie) {
       'Referer': BASE_URL + '/login',
       'Cache-Control': 'no-cache'
     },
-    redirect: 'follow'
+    redirect: 'manual'
   });
 
-  const html = await response.text();
-  const points = extractPoints(html);
-  log('INFO', `[${email}] 当前积分: ${points || '未找到'}`);
-
-  const mainCookie = filterMainSiteCookies(response.headers.get('set-cookie'));
-  if (mainCookie) {
-    await updateMainCookie(env, email, mainCookie);
+  // 检查是否被重定向到登录页
+  if (response.status === 302 || response.status === 301) {
+    const location = response.headers.get('Location');
+    if (location && location.includes('/login')) {
+      log('WARN', `[${email}] Cookie 已失效（重定向到登录页）`);
+      return { points: null, loggedIn: false };
+    }
   }
-  const newCookie = mainCookie || cookie;
-  return { cookie: newCookie, points };
+
+  if (response.status === 200) {
+    const html = await response.text();
+    const isLoggedIn = (
+      html.includes('Earn Credits') ||
+      html.includes('tableau de bord') ||
+      /dashboard|serveurs/i.test(html)
+    );
+    if (!isLoggedIn) {
+      log('WARN', `[${email}] 页面内容未检测到登录状态`);
+      return { points: null, loggedIn: false };
+    }
+    const points = extractPoints(html);
+    log('INFO', `[${email}] 登录有效，当前积分: ${points || '未找到'}`);
+    return { points, loggedIn: true };
+  }
+
+  log('ERROR', `[${email}] 访问 /home 异常: ${response.status}`);
+  return { points: null, loggedIn: false };
 }
 
-// ========== 广告请求（不写 KV） ==========
+// ========== 广告请求（不提取 Set-Cookie） ==========
 async function adApiRequest(url, cookie, referer = BASE_URL + '/home') {
   const headers = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
@@ -142,9 +137,7 @@ async function adApiRequest(url, cookie, referer = BASE_URL + '/home') {
     'Sec-Fetch-Site': 'same-origin'
   };
   const response = await fetch(url, { headers, redirect: 'manual' });
-  const setCookie = response.headers.get('set-cookie');
-  const mainCookie = filterMainSiteCookies(setCookie);
-  return { response, newCookie: mainCookie };
+  return response;
 }
 
 // ========== 解析链接 ==========
@@ -163,7 +156,7 @@ function extractLinkToUrl(html) {
   return match ? match[1] : null;
 }
 
-// ========== 验证流程 ==========
+// ========== 验证流程（不更新 Cookie） ==========
 async function executeVerify(verifyPath, cookie, env, email) {
   if (!verifyPath.startsWith('http')) verifyPath = BASE_URL + verifyPath;
   log('INFO', `[${email}] 验证URL: ${verifyPath}`);
@@ -182,57 +175,56 @@ async function executeVerify(verifyPath, cookie, env, email) {
     redirect: 'follow'
   });
 
-  const newCookie = filterMainSiteCookies(response.headers.get('set-cookie'));
   const text = await response.text();
 
   if (/earn (free )?credits|serveurs|dashboard/i.test(text)) {
-    return { success: true, cookie: newCookie || cookie };
+    return { success: true };
   }
   if (/limite quotidienne atteinte|no.*credits/i.test(text)) {
-    return { success: false, cookie: newCookie || cookie, msg: '今日额度已用完' };
+    return { success: false, msg: '今日额度已用完' };
   }
   if (/login/i.test(text) && response.url.includes('/login')) {
-    return { success: false, cookie: newCookie || cookie, msg: 'Cookie已失效' };
+    return { success: false, msg: 'Cookie已失效' };
   }
-  return { success: false, cookie: newCookie || cookie, msg: '验证后页面异常' };
+  return { success: false, msg: '验证后页面异常' };
 }
 
 async function followLinkvertiseFlow(linkToUrl, cookie, env, email) {
-  const { response, newCookie } = await adApiRequest(linkToUrl, cookie);
-  const currentCookie = newCookie || cookie;
+  const response = await adApiRequest(linkToUrl, cookie);
 
   if (response.status === 302 || response.status === 301) {
     const location = response.headers.get('location');
-    if (!location) return { success: false, cookie: currentCookie, msg: '无 location' };
+    if (!location) return { success: false, msg: '无 location' };
     log('INFO', `[${email}] link-to.net 跳转: ${location.substring(0, 60)}...`);
     const verifyPath = decodeRParam(location);
-    if (!verifyPath) return { success: false, cookie: currentCookie, msg: '解码 r 失败' };
-    return executeVerify(verifyPath, currentCookie, env, email);
+    if (!verifyPath) return { success: false, msg: '解码 r 失败' };
+    return executeVerify(verifyPath, cookie, env, email);
   }
 
   if (response.status === 200) {
     const html = await response.text();
     if (/limite quotidienne atteinte|no.*credits/i.test(html)) {
-      return { success: false, cookie: currentCookie, msg: '今日额度已用完' };
+      return { success: false, msg: '今日额度已用完' };
     }
     const redirect = extractLinkToUrl(html);
     if (redirect) {
       const verifyPath = decodeRParam(redirect);
-      if (verifyPath) return executeVerify(verifyPath, currentCookie, env, email);
+      if (verifyPath) return executeVerify(verifyPath, cookie, env, email);
     }
-    return { success: false, cookie: currentCookie, msg: 'link-to.net 200 未找到跳转' };
+    return { success: false, msg: 'link-to.net 200 未找到跳转' };
   }
 
-  return { success: false, cookie: currentCookie, msg: `link-to.net 状态 ${response.status}` };
+  return { success: false, msg: `link-to.net 状态 ${response.status}` };
 }
 
-// ========== 广告任务主循环 ==========
-async function performAdTask(env, email, initialCookie) {
-  // 1. 开始前访问主页，获取初始积分和最新 Cookie
-  const homeStart = await fetchHomePage(env, email, initialCookie);
-  let currentCookie = homeStart.cookie;
+// ========== 广告任务主循环（无 Cookie 续期） ==========
+async function performAdTask(env, email, cookie) {
+  // 1. 开始前访问主页，检查登录状态并获取初始积分
+  const homeStart = await fetchHomePage(email, cookie);
+  if (!homeStart.loggedIn) {
+    throw new Error('Cookie已失效，请手动更新后重试');
+  }
   const beforePoints = homeStart.points;
-
   log('INFO', `[${email}] 开始广告任务，初始积分: ${beforePoints || '未知'}`);
 
   let completedAds = 0;
@@ -242,13 +234,11 @@ async function performAdTask(env, email, initialCookie) {
     for (let round = 1; round <= MAX_ADS_PER_RUN; round++) {
       log('INFO', `[${email}] 第 ${round} 轮广告`);
 
-      const { response, newCookie } = await adApiRequest(
+      const response = await adApiRequest(
         `${BASE_URL}/linkvertise/generate`,
-        currentCookie,
+        cookie,
         BASE_URL + '/home'
       );
-
-      if (newCookie) currentCookie = newCookie;
 
       const status = response.status;
       log('DEBUG', `[${email}] generate 响应: ${status}`);
@@ -263,7 +253,7 @@ async function performAdTask(env, email, initialCookie) {
         if (location.includes('/linkvertise') && !location.includes('/linkvertise/generate')) {
           log('INFO', `[${email}] 重定向到 /linkvertise，额度已用完`);
           const check = await fetch(BASE_URL + location, {
-            headers: { 'Cookie': currentCookie, 'User-Agent': 'Mozilla/5.0 ...' },
+            headers: { 'Cookie': cookie, 'User-Agent': 'Mozilla/5.0 ...' },
             redirect: 'follow'
           });
           const checkText = await check.text();
@@ -275,8 +265,7 @@ async function performAdTask(env, email, initialCookie) {
           break;
         }
 
-        const flow = await followLinkvertiseFlow(location, currentCookie, env, email);
-        currentCookie = flow.cookie;
+        const flow = await followLinkvertiseFlow(location, cookie, env, email);
         if (flow.success) {
           completedAds++;
           log('INFO', `[${email}] ✅ 第 ${completedAds} 次广告完成`);
@@ -295,8 +284,7 @@ async function performAdTask(env, email, initialCookie) {
         if (!linkToUrl) { error = '未找到 link-to.net 链接'; break; }
         log('INFO', `[${email}] 提取链接: ${linkToUrl.substring(0, 60)}...`);
 
-        const flow = await followLinkvertiseFlow(linkToUrl, currentCookie, env, email);
-        currentCookie = flow.cookie;
+        const flow = await followLinkvertiseFlow(linkToUrl, cookie, env, email);
         if (flow.success) {
           completedAds++;
           log('INFO', `[${email}] ✅ 第 ${completedAds} 次广告完成`);
@@ -324,12 +312,15 @@ async function performAdTask(env, email, initialCookie) {
     log('ERROR', `[${email}] 异常: ${error}`);
   }
 
-  // 2. 结束后访问主页，获取最终积分和续期 Cookie
+  // 2. 结束后访问主页，获取最终积分（不再续期）
   let afterPoints = null;
   try {
-    const homeEnd = await fetchHomePage(env, email, currentCookie);
-    currentCookie = homeEnd.cookie;
-    afterPoints = homeEnd.points;
+    const homeEnd = await fetchHomePage(email, cookie);
+    if (homeEnd.loggedIn) {
+      afterPoints = homeEnd.points;
+    } else {
+      log('WARN', `[${email}] 结束后检查登录失败，可能 Cookie 已失效`);
+    }
   } catch (e) {
     log('WARN', `[${email}] 结束后访问主页失败: ${e.message}`);
   }
@@ -338,7 +329,6 @@ async function performAdTask(env, email, initialCookie) {
     completedAds,
     beforePoints,
     afterPoints,
-    cookie: currentCookie,
     error
   };
 }
@@ -397,10 +387,10 @@ async function processAccount(env, account) {
     result.afterPoints = ad.afterPoints;
     result.error = ad.error;
 
+    // 更新统计（Cookie 保持不变）
     await updateAccountStats(env, account.email, {
       lastAdCount: ad.completedAds,
       totalAds: (account.totalAds || 0) + ad.completedAds,
-      cookie: ad.cookie,
       lastPoints: ad.afterPoints || ad.beforePoints || '0,00'
     });
 
@@ -424,7 +414,7 @@ async function processAllAccounts(env) {
   return { success: true, totalAds: results.reduce((s, r) => s + r.adCount, 0), results };
 }
 
-// ========== 前端 HTML ==========
+// ========== 前端 HTML（保持不变，但描述可酌情更改） ==========
 function getHtmlPage() {
   return `<!DOCTYPE html>
 <html lang="zh-CN">
@@ -604,7 +594,7 @@ textarea { min-height: 120px; font-family: Monaco, monospace; resize: vertical; 
 <div class="container">
   <div class="header">
     <h1>🚀 TeoHeberg 广告任务</h1>
-    <p>自动完成广告 · Cookie自动更新</p>
+    <p>自动完成广告 · 手动管理Cookie</p>
   </div>
 
   <div class="card">
@@ -914,7 +904,6 @@ export default {
         await saveAccounts(env, accounts.filter(a => a.email !== body.email));
         return jsonResponse({ success: true });
       }
-      // 新增：手动更新 Cookie
       if (url.pathname === '/accounts/update-cookie' && request.method === 'POST') {
         const body = await request.json();
         if (!body.email || !body.cookie) {
