@@ -1,28 +1,28 @@
-# 🚀 TeoHeberg 广告任务自动化
+# TeoHeberg 广告任务自动化
 
-# 动动小手点点 Star ⭐
+> 动动小手点点 Star ⭐
 
-基于 **Cloudflare Workers** 部署的 **TeoHeberg 每日广告任务**自动化脚本、积分追踪与 Telegram 通知。
+基于 **Cloudflare Workers** 部署的 **TeoHeberg 每日广告任务**自动化脚本，自动完成 Linkvertise 广告、追踪积分变化，并通过 Telegram 推送通知。
 
 ---
 
 ## 📌 功能说明
 
-* ✅ 自动完成每日广告任务
-* ✅ 多账号管理，支持批量导入
-* ✅ 积分提取，Telgram 通知展示积分变化
-* ✅ 支持手动触发（网页管理面板 / API）
-* ✅ 支持定时 Cron 触发
-* ✅ 前端界面支持账号增删、Cookie 手动更新、单账号执行
-* ✅ 完整 API 接口，可集成到其他自动化流程
+- ✅ 自动完成每日广告任务  
+- ✅ 多账号管理，支持批量导入  
+- ✅ 积分提取，Telegram 通知展示积分变化  
+- ✅ 支持手动触发（网页管理面板 / API）  
+- ✅ 支持定时 Cron 触发  
+- ✅ 前端界面支持账号增删、Cookie 手动更新、单账号执行  
+- ✅ 完整 API 接口，可集成到其他自动化流程  
+- ✅ 仅需长期 `remember_web` Cookie，系统自动获取短期会话令牌  
 
 ---
 
 ## ⚠️ 注意事项
 
-> ❗ 依赖已登录的 Cookie，**不提供自动登录功能**，需手动获取
-> 
-> ❗ 请确保 Cookie 包含 `XSRF-TOKEN` 和 `teoheberg_session`
+> ❗ 依赖已登录的 Cookie，**不提供自动登录功能**，需手动获取长期有效的 `remember_web`。  
+> ❗ 登录时务必勾选 **Se souvenir de moi**（记住我），以获取长期 Cookie。  
 
 ---
 
@@ -34,11 +34,11 @@
 
 ## 🚀 部署方式
 
-1. 登录 [Cloudflare Dashboard](https://dash.cloudflare.com/)，进入 Workers 页面
-2. 创建一个新的 Worker，将本项目 [worker.js](./worker.js) 代码粘贴进去
-3. 创建 **KV 命名空间**，名称随意，绑定到 Worker，绑定变量名为 `TEOHEBERG_KV`
-4. 配置环境变量（见下表）
-5. 部署 Worker
+1. 登录 [Cloudflare Dashboard](https://dash.cloudflare.com/)，进入 Workers 页面  
+2. 创建一个新的 Worker，将 [worker.js](./worker.js) 代码粘贴进去  
+3. 创建 **KV 命名空间**，名称随意，在 Worker 设置中绑定变量名为 `TEOHEBERG_KV`  
+4. 配置环境变量（见下表）  
+5. 部署 Worker  
 
 ---
 
@@ -61,27 +61,37 @@
 
 ## 📄 账号添加格式
 
-在管理面板的文本框中，按以下格式输入：
+在管理面板的文本框中，按以下格式输入（每行一个账号）：
 
 ```
-邮箱/备注-----Cookie1
-邮箱/备注-----Cookie2
+邮箱或备注-----remember_web_xxx=...
 ```
 
-**示例：**
+**格式**
+
 ```
-admin@gmail.com-----XSRF-TOKEN=eyJ...; teoheberg_session=eyJ...
-备注-----XSRF-TOKEN=abc...; teoheberg_session=def...
+admin@gmail.com-----remember_web_59ba3xxx89d=eyJpdiI6xxxiIn0%3D; XSRF-TOKEN=eyJpxxx0%3D
+大号-----remember_web_59ba3xxx89d=eyJpdiI6xxxiIn0%3D; XSRF-TOKEN=eyJpxxx0%3D
 ```
 
-### 🔍 如何获取 Cookie？
-1. 浏览器登录 [manager.teoheberg.fr](https://manager.teoheberg.fr)
-2. 打开开发者工具 (F12) → Network 标签
-3. 刷新页面，点击任意请求
-4. 在 **Request Headers** 中找到 `Cookie` 字段，复制完整值
-5. 使用 `邮箱-----Cookie` 格式导入
+多个账号可以一次粘贴多行，系统会自动解析。
 
-### Cookie 格式 
+---
+
+### 🔍 如何获取长期 `remember_web` Cookie？
+
+1. 浏览器登录 [manager.teoheberg.fr](https://manager.teoheberg.fr)  
+2. ⚠️ 注意 **勾选** `Se souvenir de moi`（记住我）  
+3. 登录成功后，打开 **开发者工具 (F12)**  
+4. 在地址栏访问：`https://manager.teoheberg.fr/linkvertise`  
+5. 点击 **Network（网络）** 标签，在左侧请求列表中找到 `linkvertise` 这条请求（如果没有，刷新页面）  
+6. 点击该请求，在右侧 **Request Headers**（请求头）中找到 `Cookie` 字段，复制 **完整** 的 `Cookie` 值  
+7. 从复制的内容中提取 `remember_web_...=...` 这一部分（例如：`remember_web_59ba3xxx89d=eyJpdiI6xxxiIn0%3D; XSRF-TOKEN=eyJpxxx0%3D`），这就是你需要的长期 Cookie  
+
+> 也可通过在浏览器 **Application**（应用程序） → **Cookies** 中直接查看并复制 `remember_web_...` 的值。
+
+
+### Cookie 格式参考
 ![Cookie格式](img/Cookie.png)
 
 ---
@@ -106,12 +116,12 @@ admin@gmail.com-----XSRF-TOKEN=eyJ...; teoheberg_session=eyJ...
 https://你的域名/workers.dev
 ```
 功能包括：
-- 📊 查看账号列表和统计
-- ✏️ 批量添加账号
-- 🗑️ 删除账号
-- ▶️ 手动执行单个账号
-- 🔄 手动执行所有账号
-- 🍪 弹窗手动更新 Cookie
+- 📊 查看账号列表和统计  
+- ✏️ 批量添加账号  
+- 🗑️ 删除账号  
+- ▶️ 手动执行单个账号  
+- 🔄 手动执行所有账号  
+- 🍪 弹窗手动更新 Cookie  
 
 ---
 
@@ -164,16 +174,15 @@ curl "https://你的域名/accounts?key=你的AUTH_KEY"
 ## 💬 Telegram 通知说明
 
 配置 `TELEGRAM_BOT_TOKEN` 和 `TELEGRAM_CHAT_ID` 后：
-- ✅ 每次任务执行完毕自动推送积分变化
-- ✅ 额度已用完时提示冷却
-- ❌ 遇到 Cookie 失效、网络错误等会推送错误信息
+- ✅ 每次任务执行完毕自动推送积分变化  
+- ✅ 额度已用完时提示冷却  
+- ❌ 遇到 Cookie 失效、网络错误等会推送错误信息  
 
 ---
 
 ## ❤️ 支持项目
 
-如果这个项目对你有帮助：
-
+如果这个项目对你有帮助：  
 👉 点个 **Star ⭐** 支持一下吧！
 
 ---
