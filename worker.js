@@ -51,7 +51,7 @@ async function addAccount(env, email, cookie) {
   } else {
     accounts.push({
       email,
-      cookie,                    // 推荐只存 remember_web
+      cookie,
       addedAt: now,
       updatedAt: now,
       cookieUpdatedAt: now,
@@ -68,7 +68,6 @@ async function updateAccountStats(env, email, stats) {
   const accounts = await getAccounts(env);
   const account = accounts.find(a => a.email === email);
   if (account) {
-    // 只更新统计信息，不改变长期 Cookie
     const { cookie, ...safeStats } = stats;
     Object.assign(account, safeStats, { updatedAt: new Date().toISOString() });
     await saveAccounts(env, accounts);
@@ -122,7 +121,7 @@ async function buildRuntimeCookie(email, storedCookie) {
   // 从存储的Cookie中提取 remember_web 部分（可能存储了完整的Cookie）
   let rememberWeb = storedCookie;
   const match = storedCookie.match(/(remember_web_\w+=[^;]+)/);
-  if (match) rememberWeb = match[1];    // 只保留 remember_web 那一项
+  if (match) rememberWeb = match[1];
 
   const runtimeCookie = [rememberWeb, xsrf, session].join('; ');
   log('INFO', `[${email}] 会话初始化成功`);
