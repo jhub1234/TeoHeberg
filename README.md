@@ -69,23 +69,21 @@
 **格式**
 
 ```
-admin@gmail.com-----remember_web_59ba3xxx89d=eyJpdiI6xxxiIn0%3D; XSRF-TOKEN=eyJpxxx0%3D
-大号-----remember_web_59ba3xxx89d=eyJpdiI6xxxiIn0%3D; XSRF-TOKEN=eyJpxxx0%3D
+admin@gmail.com-----remember_web_59ba3xxx89d=eyJpdiI6xxxiIn0%3D
+大号-----remember_web_59ba3xxx89d=eyJpdiI6xxxiIn0%3D
 ```
 
 多个账号可以一次粘贴多行，系统会自动解析。
 
 ---
 
-### 🔍 如何获取长期 `remember_web` Cookie？
-
-1. 浏览器登录 [manager.teoheberg.fr](https://manager.teoheberg.fr)  
-2. ⚠️ 注意 **勾选** `Se souvenir de moi`（记住我）  
-3. 登录成功后，打开 **开发者工具 (F12)**  
-4. 在地址栏访问：`https://manager.teoheberg.fr/linkvertise`  
-5. 点击 **Network（网络）** 标签，在左侧请求列表中找到 `linkvertise` 这条请求（如果没有，刷新页面）  
-6. 点击该请求，在右侧 **Request Headers**（请求头）中找到 `Cookie` 字段，复制 **完整** 的 `Cookie` 值  
-7. 从复制的内容中提取 `remember_web_...=...` 这一部分（例如：`remember_web_59ba3xxx89d=eyJpdiI6xxxiIn0%3D; XSRF-TOKEN=eyJpxxx0%3D`），这就是你需要的长期 Cookie  
+### 🔍 如何获取 Cookie？
+1. 浏览器登录 [manager.teoheberg.fr](https://manager.teoheberg.fr)
+2. 打开开发者工具 (F12) → Network 标签
+3. 刷新页面，点击任意请求
+4. 在 **Request Headers** 中找到 `Cookie` 字段
+5. 从复制的内容中提取 `remember_web_...=...` 这一部分（例如：`remember_web_59ba3xxx89d=eyJpdiI6xxxiIn0%3D`），这就是你需要的长期 Cookie
+6. 使用 `邮箱-----Cookie` 格式导入
 
 > 也可通过在浏览器 **Application**（应用程序） → **Cookies** 中直接查看并复制 `remember_web_...` 的值。
 
