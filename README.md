@@ -2,7 +2,7 @@
 
 # 动动小手点点 Star ⭐
 
-基于 **Cloudflare Workers** 部署的 **TeoHeberg 每日广告任务**自动化脚本，支持 Cookie 自动续期、积分追踪与 Telegram 通知。
+基于 **Cloudflare Workers** 部署的 **TeoHeberg 每日广告任务**自动化脚本、积分追踪与 Telegram 通知。
 
 ---
 
@@ -10,7 +10,6 @@
 
 * ✅ 自动完成每日广告任务
 * ✅ 多账号管理，支持批量导入
-* ✅ Cookie 自动被动更新
 * ✅ 积分提取，Telgram 通知展示积分变化
 * ✅ 支持手动触发（网页管理面板 / API）
 * ✅ 支持定时 Cron 触发
@@ -21,7 +20,7 @@
 
 ## ⚠️ 注意事项
 
-> ❗ 依赖已登录的 Cookie，**不提供自动登录功能**，首次需手动获取
+> ❗ 依赖已登录的 Cookie，**不提供自动登录功能**，需手动获取
 > 
 > ❗ 请确保 Cookie 包含 `XSRF-TOKEN` 和 `teoheberg_session`
 
