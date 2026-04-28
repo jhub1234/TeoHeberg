@@ -1,8 +1,8 @@
 const BASE_URL = 'https://manager.teoheberg.fr';
 const ACCOUNTS_KEY = 'teoheberg_accounts';
-const MAX_ADS_PER_RUN = 50;
+const MAX_ADS_PER_RUN = 10; // 免费计划建议 10，避免子请求超限
 
-// ========== 工具函数 =========
+// ========== 工具函数 ==========
 function log(level, msg) {
   const time = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
   const icon = { INFO: '✅', WARN: '⚠️', ERROR: '❌', DEBUG: '🔍' }[level] || 'ℹ️';
@@ -51,7 +51,7 @@ async function addAccount(env, email, cookie) {
   } else {
     accounts.push({
       email,
-      cookie,
+      cookie,                    // 推荐只存 remember_web
       addedAt: now,
       updatedAt: now,
       cookieUpdatedAt: now,
@@ -68,11 +68,65 @@ async function updateAccountStats(env, email, stats) {
   const accounts = await getAccounts(env);
   const account = accounts.find(a => a.email === email);
   if (account) {
-    // 不再更新 cookie，只更新统计信息
+    // 只更新统计信息，不改变长期 Cookie
     const { cookie, ...safeStats } = stats;
     Object.assign(account, safeStats, { updatedAt: new Date().toISOString() });
     await saveAccounts(env, accounts);
   }
+}
+
+// ========== 从响应头提取短期令牌 ==========
+function extractSessionTokens(setCookieHeader) {
+  if (!setCookieHeader) return { xsrf: null, session: null };
+  const tokens = { xsrf: null, session: null };
+  // 处理逗号分隔的多个 Cookie
+  const parts = setCookieHeader.split(',');
+  for (const part of parts) {
+    const cookie = part.split(';')[0].trim();
+    if (cookie.startsWith('XSRF-TOKEN=')) {
+      tokens.xsrf = cookie;
+    } else if (cookie.startsWith('teoheberg_session=')) {
+      tokens.session = cookie;
+    }
+  }
+  return tokens;
+}
+
+// ========== 用长期 Cookie 初始化会话，返回完整 Cookie ==========
+async function buildRuntimeCookie(email, storedCookie) {
+  log('INFO', `[${email}] 使用长期Cookie获取短期令牌...`);
+  const resp = await fetch(BASE_URL + '/home', {
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      'Accept-Language': 'fr-FR,fr;q=0.9,en;q=0.8',
+      'Cookie': storedCookie,
+      'Referer': BASE_URL + '/login',
+      'Cache-Control': 'no-cache'
+    },
+    redirect: 'manual'
+  });
+
+  // 如果重定向到登录页，说明长期 Cookie 也失效了
+  if (resp.status === 302 && resp.headers.get('location')?.includes('/login')) {
+    log('ERROR', `[${email}] remember_web 已失效，需要手动更新`);
+    return null;
+  }
+
+  const { xsrf, session } = extractSessionTokens(resp.headers.get('set-cookie'));
+  if (!xsrf || !session) {
+    log('ERROR', `[${email}] 未能获取短期令牌，请检查Cookie格式`);
+    return null;
+  }
+
+  // 从存储的Cookie中提取 remember_web 部分（可能存储了完整的Cookie）
+  let rememberWeb = storedCookie;
+  const match = storedCookie.match(/(remember_web_\w+=[^;]+)/);
+  if (match) rememberWeb = match[1];    // 只保留 remember_web 那一项
+
+  const runtimeCookie = [rememberWeb, xsrf, session].join('; ');
+  log('INFO', `[${email}] 会话初始化成功`);
+  return runtimeCookie;
 }
 
 // ========== 积分提取 ==========
@@ -81,9 +135,8 @@ function extractPoints(html) {
   return match ? match[1].trim() : null;
 }
 
-// ========== 主页访问（续期 + 积分） ==========
+// ========== 主页访问（仅获取积分） ==========
 async function fetchHomePage(email, cookie) {
-  log('INFO', `[${email}] 访问主页获取积分`);
   const response = await fetch(BASE_URL + '/home', {
     headers: {
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
@@ -115,8 +168,7 @@ async function adApiRequest(url, cookie, referer = BASE_URL + '/home') {
     'Sec-Fetch-Mode': 'navigate',
     'Sec-Fetch-Site': 'same-origin'
   };
-  const response = await fetch(url, { headers, redirect: 'manual' });
-  return response;
+  return fetch(url, { headers, redirect: 'manual' });
 }
 
 // ========== 解析链接 ==========
@@ -156,7 +208,8 @@ async function executeVerify(verifyPath, cookie, email) {
 
   const text = await response.text();
 
-  if (/earn (free )?credits|serveurs|dashboard/i.test(text)) {
+  // 更准确的成功标记：通常会显示 “Vous avez gagné” 或 “Crédits”
+  if (/gagné|crédits? gagnés|earned credits/i.test(text)) {
     return { success: true };
   }
   if (/limite quotidienne atteinte|no.*credits/i.test(text)) {
@@ -165,6 +218,10 @@ async function executeVerify(verifyPath, cookie, email) {
   if (/login/i.test(text) && response.url.includes('/login')) {
     return { success: false, msg: 'Cookie已失效' };
   }
+
+  // 还没匹配到，输出部分页面内容帮助调试
+  const snippet = text.substring(0, 200).replace(/\n/g, ' ');
+  log('WARN', `[${email}] 验证页面未知内容: ${snippet}`);
   return { success: false, msg: '验证后页面异常' };
 }
 
@@ -197,9 +254,15 @@ async function followLinkvertiseFlow(linkToUrl, cookie, email) {
 }
 
 // ========== 广告任务主循环 ==========
-async function performAdTask(env, email, cookie) {
-  // 1. 开始前访问主页获取初始积分
-  const homeStart = await fetchHomePage(email, cookie);
+async function performAdTask(env, email, storedCookie) {
+  // 1. 初始化会话，获取包含短期令牌的完整 Cookie
+  const runtimeCookie = await buildRuntimeCookie(email, storedCookie);
+  if (!runtimeCookie) {
+    return { completedAds: 0, beforePoints: null, afterPoints: null, error: '会话初始化失败，请更新长期Cookie' };
+  }
+
+  // 2. 开始前获取初始积分
+  const homeStart = await fetchHomePage(email, runtimeCookie);
   const beforePoints = homeStart.points;
   log('INFO', `[${email}] 开始广告任务，初始积分: ${beforePoints || '未知'}`);
 
@@ -212,7 +275,7 @@ async function performAdTask(env, email, cookie) {
 
       const response = await adApiRequest(
         `${BASE_URL}/linkvertise/generate`,
-        cookie,
+        runtimeCookie,
         BASE_URL + '/home'
       );
 
@@ -229,7 +292,7 @@ async function performAdTask(env, email, cookie) {
         if (location.includes('/linkvertise') && !location.includes('/linkvertise/generate')) {
           log('INFO', `[${email}] 重定向到 /linkvertise，额度已用完`);
           const check = await fetch(BASE_URL + location, {
-            headers: { 'Cookie': cookie, 'User-Agent': 'Mozilla/5.0 ...' },
+            headers: { 'Cookie': runtimeCookie, 'User-Agent': 'Mozilla/5.0 ...' },
             redirect: 'follow'
           });
           const checkText = await check.text();
@@ -241,7 +304,7 @@ async function performAdTask(env, email, cookie) {
           break;
         }
 
-        const flow = await followLinkvertiseFlow(location, cookie, email);
+        const flow = await followLinkvertiseFlow(location, runtimeCookie, email);
         if (flow.success) {
           completedAds++;
           log('INFO', `[${email}] ✅ 第 ${completedAds} 次广告完成`);
@@ -260,7 +323,7 @@ async function performAdTask(env, email, cookie) {
         if (!linkToUrl) { error = '未找到 link-to.net 链接'; break; }
         log('INFO', `[${email}] 提取链接: ${linkToUrl.substring(0, 60)}...`);
 
-        const flow = await followLinkvertiseFlow(linkToUrl, cookie, email);
+        const flow = await followLinkvertiseFlow(linkToUrl, runtimeCookie, email);
         if (flow.success) {
           completedAds++;
           log('INFO', `[${email}] ✅ 第 ${completedAds} 次广告完成`);
@@ -288,22 +351,18 @@ async function performAdTask(env, email, cookie) {
     log('ERROR', `[${email}] 异常: ${error}`);
   }
 
-  // 2. 结束后访问主页获取最终积分
+  // 3. 结束后获取最终积分
   let afterPoints = null;
   try {
-    const homeEnd = await fetchHomePage(email, cookie);
+    const homeEnd = await fetchHomePage(email, runtimeCookie);
     afterPoints = homeEnd.points;
   } catch (e) {
     log('WARN', `[${email}] 结束后访问主页失败: ${e.message}`);
   }
 
-  return {
-    completedAds,
-    beforePoints,
-    afterPoints,
-    error
-  };
+  return { completedAds, beforePoints, afterPoints, error };
 }
+
 
 async function notifyAdResult(env, email, result) {
   const time = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
