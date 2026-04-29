@@ -87,6 +87,8 @@ admin@gmail.com-----remember_web_59ba3xxx89d=eyJpdiI6xxxiIn0%3D
 
 > 也可通过在浏览器 **Application**（应用程序） → **Cookies** 中直接查看并复制 `remember_web_...` 的值。
 
+- ⚠️注意：登录时务必勾选 `Se souvenir de moi`（记住我），以获取长期 Cookie。
+
 
 ### Cookie 格式参考
 ![Cookie格式](img/Cookie.png)
