@@ -1,6 +1,6 @@
 const BASE_URL = 'https://manager.teoheberg.fr';
 const ACCOUNTS_KEY = 'teoheberg_accounts';
-const MAX_ADS_PER_RUN = 10; // 免费计划建议 10，避免子请求超限
+const MAX_ADS_PER_RUN = 10;
 
 // ========== 工具函数 ==========
 function log(level, msg) {
@@ -78,7 +78,6 @@ async function updateAccountStats(env, email, stats) {
 function extractSessionTokens(setCookieHeader) {
   if (!setCookieHeader) return { xsrf: null, session: null };
   const tokens = { xsrf: null, session: null };
-  // 处理逗号分隔的多个 Cookie
   const parts = setCookieHeader.split(',');
   for (const part of parts) {
     const cookie = part.split(';')[0].trim();
@@ -91,7 +90,7 @@ function extractSessionTokens(setCookieHeader) {
   return tokens;
 }
 
-// ========== 用长期 Cookie 初始化会话，返回完整 Cookie ==========
+// ========== 用长期 Cookie 初始化会话 ==========
 async function buildRuntimeCookie(email, storedCookie) {
   log('INFO', `[${email}] 使用长期Cookie获取短期令牌...`);
   const resp = await fetch(BASE_URL + '/home', {
@@ -106,7 +105,6 @@ async function buildRuntimeCookie(email, storedCookie) {
     redirect: 'manual'
   });
 
-  // 如果重定向到登录页，说明长期 Cookie 也失效了
   if (resp.status === 302 && resp.headers.get('location')?.includes('/login')) {
     log('ERROR', `[${email}] remember_web 已失效，需要手动更新`);
     return null;
@@ -118,7 +116,6 @@ async function buildRuntimeCookie(email, storedCookie) {
     return null;
   }
 
-  // 从存储的Cookie中提取 remember_web 部分（可能存储了完整的Cookie）
   let rememberWeb = storedCookie;
   const match = storedCookie.match(/(remember_web_\w+=[^;]+)/);
   if (match) rememberWeb = match[1];
@@ -134,7 +131,7 @@ function extractPoints(html) {
   return match ? match[1].trim() : null;
 }
 
-// ========== 主页访问（仅获取积分） ==========
+// ========== 主页访问 ==========
 async function fetchHomePage(email, cookie) {
   const response = await fetch(BASE_URL + '/home', {
     headers: {
@@ -207,7 +204,6 @@ async function executeVerify(verifyPath, cookie, email) {
 
   const text = await response.text();
 
-  // 更准确的成功标记：通常会显示 “Vous avez gagné” 或 “Crédits”
   if (/gagné|crédits? gagnés|earned credits/i.test(text)) {
     return { success: true };
   }
@@ -218,7 +214,6 @@ async function executeVerify(verifyPath, cookie, email) {
     return { success: false, msg: 'Cookie已失效' };
   }
 
-  // 还没匹配到，输出部分页面内容帮助调试
   const snippet = text.substring(0, 200).replace(/\n/g, ' ');
   log('WARN', `[${email}] 验证页面未知内容: ${snippet}`);
   return { success: false, msg: '验证后页面异常' };
@@ -254,13 +249,11 @@ async function followLinkvertiseFlow(linkToUrl, cookie, email) {
 
 // ========== 广告任务主循环 ==========
 async function performAdTask(env, email, storedCookie) {
-  // 1. 初始化会话，获取包含短期令牌的完整 Cookie
   const runtimeCookie = await buildRuntimeCookie(email, storedCookie);
   if (!runtimeCookie) {
     return { completedAds: 0, beforePoints: null, afterPoints: null, error: '会话初始化失败，请更新长期Cookie' };
   }
 
-  // 2. 开始前获取初始积分
   const homeStart = await fetchHomePage(email, runtimeCookie);
   const beforePoints = homeStart.points;
   log('INFO', `[${email}] 开始广告任务，初始积分: ${beforePoints || '未知'}`);
@@ -350,7 +343,6 @@ async function performAdTask(env, email, storedCookie) {
     log('ERROR', `[${email}] 异常: ${error}`);
   }
 
-  // 3. 结束后获取最终积分
   let afterPoints = null;
   try {
     const homeEnd = await fetchHomePage(email, runtimeCookie);
@@ -362,12 +354,24 @@ async function performAdTask(env, email, storedCookie) {
   return { completedAds, beforePoints, afterPoints, error };
 }
 
-
+// ========== 通知发送（已修复 Cookie 失效不提示的问题） ==========
 async function notifyAdResult(env, email, result) {
   const time = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
   let title, lines;
 
-  if (result.adCount > 0) {
+  // 优先检测 Cookie 失效等致命错误
+  if (result.error && /会话初始化失败|remember_web.*失效/i.test(result.error)) {
+    title = '🚨 Cookie 已失效';
+    lines = [
+      title,
+      '',
+      `账号：${email}`,
+      `状态：${result.error}`,
+      '⚠️ 请尽快手动更新长期 Cookie',
+      '',
+      'TeoHeberg Daily Points'
+    ];
+  } else if (result.adCount > 0) {
     title = '✅ 广告任务已完成';
     lines = [
       title,
@@ -417,7 +421,6 @@ async function processAccount(env, account) {
     result.afterPoints = ad.afterPoints;
     result.error = ad.error;
 
-    // 只更新统计，cookie 保持不变
     await updateAccountStats(env, account.email, {
       lastAdCount: ad.completedAds,
       totalAds: (account.totalAds || 0) + ad.completedAds,
@@ -444,7 +447,7 @@ async function processAllAccounts(env) {
   return { success: true, totalAds: results.reduce((s, r) => s + r.adCount, 0), results };
 }
 
-// ========== 前端 HTML ==========
+// ========== 前端页面 ==========
 function getHtmlPage() {
   return `<!DOCTYPE html>
 <html lang="zh-CN">
@@ -852,7 +855,6 @@ async function runAll() {
   }
 }
 
-// Cookie 弹窗操作
 function openCookieModal(email) {
   document.getElementById('modalAccountEmail').value = email;
   document.getElementById('modalAccountLabel').textContent = '账号：' + email;
@@ -931,7 +933,6 @@ export default {
         await saveAccounts(env, accounts.filter(a => a.email !== body.email));
         return jsonResponse({ success: true });
       }
-      // 手动更新 Cookie
       if (url.pathname === '/accounts/update-cookie' && request.method === 'POST') {
         const body = await request.json();
         if (!body.email || !body.cookie) {
