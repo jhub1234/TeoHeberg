@@ -114,6 +114,7 @@ admin@gmail.com-----remember_web_59ba3xxx89d=eyJpdiI6xxxiIn0%3D
 中间是 **5 个减号**。
 
 > 📌 图片参考：![Cookie格式](img/Cookie.png)
+> 📌 图片参考：![Cookie格式](img/Cookie2.png)
 
 ---
 
