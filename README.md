@@ -35,7 +35,7 @@
 
 1. 登录 [Cloudflare Dashboard](https://dash.cloudflare.com/)，进入 Workers 页面  
 2. 创建一个新的 Worker，将 [worker.js](./worker.js) 代码粘贴进去  
-3. 创建 **KV 命名空间**，名称随意，在 Worker 设置中绑定变量名为 `TEOHEBERG_KV`  
+3. 创建 **KV 命名空间**（名称随意），在 Worker 设置中绑定变量名为 `TEOHEBERG_KV`  
 4. 配置环境变量（见下表）  
 5. 部署 Worker  
 
@@ -50,6 +50,7 @@
 | `TELEGRAM_CHAT_ID` | 接收通知的 Chat ID | 否 |
 
 ### ⚙️ KV 绑定
+
 在 Worker 设置 → Variables → KV Namespace Bindings 中添加：
 
 | 变量名 | KV 命名空间 |
@@ -66,7 +67,7 @@
 邮箱或备注-----remember_web_xxx=...
 ```
 
-**格式**
+**示例**：
 
 ```
 admin@gmail.com-----remember_web_59ba3xxx89d=eyJpdiI6xxxiIn0%3D
@@ -77,21 +78,42 @@ admin@gmail.com-----remember_web_59ba3xxx89d=eyJpdiI6xxxiIn0%3D
 
 ---
 
-### 🔍 如何获取 Cookie？
-1. 浏览器登录 [manager.teoheberg.fr](https://manager.teoheberg.fr)
-2. 打开开发者工具 (F12) → Network 标签
-3. 刷新页面，点击任意请求
-4. 在 **Request Headers** 中找到 `Cookie` 字段
-5. 从复制的内容中提取 `remember_web_...=...` 这一部分（例如：`remember_web_59ba3xxx89d=eyJpdiI6xxxiIn0%3D`），这就是你需要的长期 Cookie
-6. 使用 `邮箱-----Cookie` 格式导入
+## 🔍 如何获取 Cookie？
 
-> 也可通过在浏览器 **Application**（应用程序） → **Cookies** 中直接查看并复制 `remember_web_...` 的值。
+### 第 1 步：打开浏览器，先不要输入网址  
+### 第 2 步：按 F12 打开开发者工具  
+- 按键盘 **F12**（笔记本可能需要 `Fn + F12`）  
+- 或者右键页面空白处 → “检查”  
+- 你会看到屏幕右侧或下方出现一个调试面板，包含 Elements、Console、Network 等标签  
 
-- ⚠️注意：登录时务必勾选 `Se souvenir de moi`（记住我），以获取长期 Cookie。
+### 第 3 步：在地址栏输入网站  
+- 输入 `https://manager.teoheberg.fr` 并回车，让页面加载  
 
+### 第 4 步：登录账号（必须勾选“记住我”）  
+- 输入邮箱和密码  
+- **⚠️ 最重要的一步**：勾选 `Se souvenir de moi`（法语“记住我”）  
+- 点击登录按钮  
 
-### Cookie 格式参考
-![Cookie格式](img/Cookie.png)
+### 第 5 步：找到 login 请求并提取 Cookie  
+- 回到 F12 调试面板，点击 **Network** 标签  
+- 如果登录后才打开 Network，里面可能是空的 → 按 **F5** 刷新页面  
+- 在 Network 列表中找到名为 **login** 的请求（通常排在前面），点击它  
+- 右侧弹出详细窗口，找到 **Request Headers** → 向下翻，找到 `Cookie:` 这一行  
+- **只复制以 `remember_web_` 开头的部分**，例如：  
+
+  ```
+  remember_web_59ba3xxx89d=eyJpdiI6xxxiIn0%3D
+  ```
+
+### 第 6 步：保存成指定格式  
+
+```
+你的邮箱-----remember_web_59ba3xxx89d=eyJpdiI6xxxiIn0%3D
+```
+
+中间是 **5 个减号**。
+
+> 📌 图片参考：![Cookie格式](img/Cookie.png)
 
 ---
 
@@ -110,11 +132,14 @@ admin@gmail.com-----remember_web_59ba3xxx89d=eyJpdiI6xxxiIn0%3D
 ## 🌐 使用方式
 
 ### 1️⃣ 浏览器管理面板
+
 直接访问 Worker 域名，输入 `AUTH_KEY` 即可进入管理界面：
+
 ```
 https://你的域名/workers.dev
 ```
-功能包括：
+
+**功能包括**：
 - 📊 查看账号列表和统计  
 - ✏️ 批量添加账号  
 - 🗑️ 删除账号  
@@ -122,23 +147,20 @@ https://你的域名/workers.dev
 - 🔄 手动执行所有账号  
 - 🍪 弹窗手动更新 Cookie  
 
----
-
 ### 2️⃣ API 触发单个账号
+
 ```bash
 curl "https://你的域名/workers.dev/run?email=admin@example.com&key=你的AUTH_KEY"
 ```
 
----
-
 ### 3️⃣ API 触发所有账号
+
 ```bash
 curl "https://你的域名/run-all?key=你的AUTH_KEY"
 ```
 
----
-
 ### 4️⃣ 查看账号列表
+
 ```bash
 curl "https://你的域名/accounts?key=你的AUTH_KEY"
 ```
@@ -148,31 +170,37 @@ curl "https://你的域名/accounts?key=你的AUTH_KEY"
 ## 📸 效果展示
 
 ### 🔔 Telegram 通知效果
-- 任务完成时：
-  ```
-  ✅ 广告任务已完成
-  
-  账号：admin@example.com
-  积分：0,00 -> 6,00
-  广告：执行 3 次
-  
-  TeoHeberg Daily Points
-  ```
-- 额度用完时：
-  ```
-  ⏳ 冷却中
-  
-  账号：admin@example.com
-  积分：6,00
-  广告：今日额度已用完
-  
-  TeoHeberg Daily Points
-  ```
+
+**任务完成时**：
+
+```
+✅ 广告任务已完成
+
+账号：admin@example.com
+积分：0,00 -> 6,00
+广告：执行 3 次
+
+TeoHeberg Daily Points
+```
+
+**额度用完时**：
+
+```
+⏳ 冷却中
+
+账号：admin@example.com
+积分：6,00
+广告：今日额度已用完
+
+TeoHeberg Daily Points
+```
+
 ---
 
 ## 💬 Telegram 通知说明
 
 配置 `TELEGRAM_BOT_TOKEN` 和 `TELEGRAM_CHAT_ID` 后：
+
 - ✅ 每次任务执行完毕自动推送积分变化  
 - ✅ 额度已用完时提示冷却  
 - ❌ 遇到 Cookie 失效、网络错误等会推送错误信息  
@@ -186,4 +214,6 @@ curl "https://你的域名/accounts?key=你的AUTH_KEY"
 
 ---
 
-**⚠️ 免责声明**：本脚本仅供学习交流使用，使用者需遵守 TeoHeberg 的服务条款。因使用本脚本造成的任何问题，作者不承担任何责任。
+## ⚠️ 免责声明
+
+本脚本仅供学习交流使用，使用者需遵守 TeoHeberg 的服务条款。因使用本脚本造成的任何问题，作者不承担任何责任。
