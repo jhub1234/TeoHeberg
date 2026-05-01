@@ -25,6 +25,13 @@ function htmlResponse(html) {
   return new Response(html, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
 }
 
+// 将 "24,00" 形式的积分转为数字
+function parsePointsNumber(pointsStr) {
+  if (!pointsStr) return null;
+  const num = parseFloat(pointsStr.replace(',', '.'));
+  return isNaN(num) ? null : num;
+}
+
 // ========== KV 账号管理 ==========
 async function getAccounts(env) {
   try {
@@ -216,7 +223,7 @@ async function executeVerify(verifyPath, cookie, email) {
 
   const snippet = text.substring(0, 200).replace(/\n/g, ' ');
   log('WARN', `[${email}] 验证页面未知内容: ${snippet}`);
-  return { success: false, msg: '验证后页面异常' };
+  return { success: false, msg: '验证后页面异常', possibleBlindSuccess: true };
 }
 
 async function followLinkvertiseFlow(linkToUrl, cookie, email) {
@@ -351,15 +358,29 @@ async function performAdTask(env, email, storedCookie) {
     log('WARN', `[${email}] 结束后访问主页失败: ${e.message}`);
   }
 
+  // ========== 直接使用积分差估算广告次数（每次广告 +2 积分） ==========
+  if (beforePoints && afterPoints) {
+    const beforeNum = parsePointsNumber(beforePoints);
+    const afterNum = parsePointsNumber(afterPoints);
+    if (beforeNum !== null && afterNum !== null && afterNum > beforeNum) {
+      const estimated = Math.round((afterNum - beforeNum) / 2);
+      completedAds = estimated;
+      log('INFO', `[${email}] 使用积分差估算广告次数: ${estimated} 次`);
+    }
+  }
+
   return { completedAds, beforePoints, afterPoints, error };
 }
 
-// ========== 通知发送（已修复 Cookie 失效不提示的问题） ==========
+// ========== 通知发送 ==========
 async function notifyAdResult(env, email, result) {
   const time = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
   let title, lines;
 
-  // 优先检测 Cookie 失效等致命错误
+  const beforeNum = parsePointsNumber(result.beforePoints);
+  const afterNum = parsePointsNumber(result.afterPoints);
+
+  // 致命错误：Cookie 失效
   if (result.error && /会话初始化失败|remember_web.*失效/i.test(result.error)) {
     title = '🚨 Cookie 已失效';
     lines = [
@@ -371,7 +392,12 @@ async function notifyAdResult(env, email, result) {
       '',
       'TeoHeberg Daily Points'
     ];
-  } else if (result.adCount > 0) {
+  }
+  // 成功：有广告完成或积分增加（积分估算后 adCount 已正确）
+  else if (
+    result.adCount > 0 ||
+    (beforeNum !== null && afterNum !== null && afterNum > beforeNum)
+  ) {
     title = '✅ 广告任务已完成';
     lines = [
       title,
@@ -382,7 +408,9 @@ async function notifyAdResult(env, email, result) {
       '',
       'TeoHeberg Daily Points'
     ];
-  } else {
+  }
+  // 无积分增长且无广告完成 → 冷却/额度用完
+  else {
     title = '⏳ 冷却中';
     lines = [
       title,
@@ -447,7 +475,7 @@ async function processAllAccounts(env) {
   return { success: true, totalAds: results.reduce((s, r) => s + r.adCount, 0), results };
 }
 
-// ========== 前端页面 ==========
+// ========== 前端页面（保持不变） ==========
 function getHtmlPage() {
   return `<!DOCTYPE html>
 <html lang="zh-CN">
